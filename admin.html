@@ -6,9 +6,16 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         body { background: #020617; color: white; font-family: sans-serif; padding: 20px; }
-        .panel { background: #1e293b; padding: 15px; border-radius: 12px; border: 1px solid #ef4444; margin-bottom: 20px; }
-        .row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #334155; }
-        button { background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
+        .panel { background: #1e293b; padding: 15px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px; }
+        .row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #334155; align-items: center; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+        .btn-res { padding: 15px; background: #334155; border: 2px solid #475569; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; }
+        .btn-res:hover { border-color: #3b82f6; }
+        .status-pending { color: #fbbf24; font-weight: bold; }
+        .status-won { color: #10b981; }
+        .status-lost { color: #ef4444; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #334155; font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -16,7 +23,33 @@
 
     <div class="panel">
         <h3>User Approval Queue</h3>
-        <div id="userList">Loading...</div>
+        <div id="userList">Loading users...</div>
+    </div>
+
+    <div class="panel">
+        <h3>Set Official Result (Settle Bets)</h3>
+        <p style="font-size: 0.8rem; color: #94a3b8;">Clicking a number will mark matching bets as 'Won' and others as 'Lost'.</p>
+        <div class="grid">
+            <button class="btn-res" onclick="settleGame('1')">RESULT 1</button>
+            <button class="btn-res" onclick="settleGame('2')">RESULT 2</button>
+            <button class="btn-res" onclick="settleGame('3')">RESULT 3</button>
+            <button class="btn-res" onclick="settleGame('4')">RESULT 4</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Live Betting History</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Player (UID)</th>
+                    <th>Code</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="betHistory"></tbody>
+        </table>
     </div>
 
     <script>
@@ -24,18 +57,60 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
+        // 1. WATCH USERS FOR APPROVAL
         db.collection("users").where("role", "==", "player").onSnapshot(snap => {
             const list = document.getElementById('userList');
             list.innerHTML = "";
             snap.forEach(doc => {
                 const u = doc.data();
-                const status = u.isApproved ? "Approved ✅" : `<button onclick="approve('${doc.id}')">Approve Now</button>`;
-                list.innerHTML += `<div class="row"><span>${u.email}</span><span>${status}</span></div>`;
+                const action = u.isApproved ? "✅ Approved" : `<button onclick="approve('${doc.id}')" style="background:#10b981; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Approve</button>`;
+                list.innerHTML += `<div class="row"><span>${u.email}</span><span>${action}</span></div>`;
             });
         });
 
-        function approve(id) {
-            db.collection("users").doc(id).update({ isApproved: true });
+        // 2. WATCH BET HISTORY
+        db.collection("bets").orderBy("time", "desc").limit(20).onSnapshot(snap => {
+            const history = document.getElementById('betHistory');
+            history.innerHTML = "";
+            snap.forEach(doc => {
+                const b = doc.data();
+                const statusClass = `status-${b.status}`;
+                history.innerHTML += `<tr>
+                    <td>${b.uid.substring(0,5)}...</td>
+                    <td><b>${b.m}</b></td>
+                    <td>${b.l}</td>
+                    <td class="${statusClass}">${b.status.toUpperCase()}</td>
+                </tr>`;
+            });
+        });
+
+        // 3. APPROVE FUNCTION
+        function approve(id) { db.collection("users").doc(id).update({ isApproved: true }); }
+
+        // 4. SETTLE GAME LOGIC
+        async function settleGame(winningNum) {
+            if(!confirm("Are you sure the result is " + winningNum + "? This will update all pending bets!")) return;
+            
+            const pendingBets = await db.collection("bets").where("status", "==", "pending").get();
+            
+            pendingBets.forEach(async (betDoc) => {
+                const bet = betDoc.data();
+                const isWinner = bet.m.includes(winningNum); // Simple logic: if '1' is in 'K1', it wins.
+                
+                if (isWinner) {
+                    // Update bet to Won
+                    await db.collection("bets").doc(betDoc.id).update({ status: "won" });
+                    // Pay the player (e.g., 2x the bet)
+                    const userRef = db.collection("users").doc(bet.uid);
+                    const userSnap = await userRef.get();
+                    const newBal = userSnap.data().wallet + (bet.l * 2);
+                    await userRef.update({ wallet: newBal });
+                } else {
+                    // Update bet to Lost
+                    await db.collection("bets").doc(betDoc.id).update({ status: "lost" });
+                }
+            });
+            alert("Game Settled! Result: " + winningNum);
         }
     </script>
 </body>
