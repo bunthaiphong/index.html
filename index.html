@@ -2,31 +2,44 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LogicPro | Access</title>
+    <title>LogicPro | Admin Panel</title>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
-        body { background: #0f172a; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 30px; border-radius: 20px; width: 340px; text-align: center; border: 1px solid #334155; }
-        input { width: 100%; padding: 12px; margin: 8px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 14px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 10px; }
-        .toggle { font-size: 0.8rem; color: #94a3b8; margin-top: 15px; cursor: pointer; text-decoration: underline; }
+        body { background: #0f172a; color: white; font-family: sans-serif; padding: 20px; }
+        .panel { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
+        button { padding: 10px 15px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; margin: 5px; }
+        .btn-approve { background: #10b981; color: white; }
+        .btn-result { background: #3b82f6; color: white; width: 100px; height: 50px; font-size: 1.2rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #334155; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2 id="title">Login</h2>
-        <input type="text" id="nickname" placeholder="Nickname (Register only)" style="display:none;">
-        <input type="email" id="email" placeholder="Email">
-        <input type="password" id="pass" placeholder="Password">
-        <button onclick="handleAuth()">Submit</button>
-        <p class="toggle" onclick="toggleMode()" id="toggleTxt">Need an account? Register</p>
-        <p id="msg" style="color:#fbbf24; font-size:0.8rem; margin-top:10px;"></p>
+
+    <h1>Admin Control Tower</h1>
+
+    <div class="panel">
+        <h3>Current Round Result</h3>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn-result" onclick="settleGame('1')">1</button>
+            <button class="btn-result" onclick="settleGame('2')">2</button>
+            <button class="btn-result" onclick="settleGame('3')">3</button>
+            <button class="btn-result" onclick="settleGame('4')">4</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Pending Approvals</h3>
+        <table>
+            <thead><tr><th>Nickname</th><th>Email</th><th>Action</th></tr></thead>
+            <tbody id="userList"></tbody>
+        </table>
     </div>
 
     <script>
-        // Your actual config integrated
+        // YOUR CONFIG (Must be the same in all 3 files)
         const firebaseConfig = {
             apiKey: "AIzaSyC00tFeeA-JTOq-D4pu7_emPAzU7s-yPsg",
             authDomain: "logicpro-5b78a.firebaseapp.com",
@@ -35,59 +48,69 @@
             messagingSenderId: "126796584893",
             appId: "1:126796584893:web:ac43e619bf73a76542e4d4"
         };
-
         firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
         const db = firebase.firestore();
-        
-        let isLogin = true;
 
-        function toggleMode() {
-            isLogin = !isLogin;
-            document.getElementById('title').innerText = isLogin ? "Login" : "Register";
-            document.getElementById('nickname').style.display = isLogin ? "none" : "block";
-            document.getElementById('toggleTxt').innerText = isLogin ? "Have an account? Login" : "Need an account? Register";
+        // Load Pending Users
+        db.collection("users").where("isApproved", "==", false).onSnapshot(snap => {
+            const list = document.getElementById('userList');
+            list.innerHTML = "";
+            snap.forEach(doc => {
+                const u = doc.data();
+                list.innerHTML += `<tr>
+                    <td>${u.nickname || 'N/A'}</td>
+                    <td>${u.email}</td>
+                    <td><button class="btn-approve" onclick="approveUser('${doc.id}')">Approve</button></td>
+                </tr>`;
+            });
+        });
+
+        async function approveUser(uid) {
+            await db.collection("users").doc(uid).update({ isApproved: true, wallet: 1000 }); // Giving 1000 start bonus
+            alert("User Approved!");
         }
 
-        async function handleAuth() {
-            const email = document.getElementById('email').value;
-            const pass = document.getElementById('pass').value;
-            const nickname = document.getElementById('nickname').value;
-            const msg = document.getElementById('msg');
-            msg.innerText = "Working...";
-            
-            try {
-                if (!isLogin) {
-                    if(!nickname) throw new Error("Nickname is required for registration!");
-                    const res = await auth.createUserWithEmailAndPassword(email, pass);
-                    await db.collection("users").doc(res.user.uid).set({ 
-                        uid: res.user.uid, 
-                        nickname: nickname, 
-                        email: email, 
-                        wallet: 0, 
-                        isApproved: false, 
-                        role: 'player' 
-                    });
-                    msg.innerText = "Registered successfully! Please contact Admin for approval.";
-                } else {
-                    const res = await auth.signInWithEmailAndPassword(email, pass);
-                    const userDoc = await db.collection("users").doc(res.user.uid).get();
-                    
-                    if (!userDoc.exists) throw new Error("User record not found!");
-                    
-                    const data = userDoc.data();
-                    if (data.role === 'admin') {
-                        window.location.href = "admin.html";
-                    } else if (data.isApproved) {
-                        window.location.href = "app.html";
-                    } else {
-                        msg.innerText = "Account pending Admin approval.";
-                        auth.signOut();
-                    }
-                }
-            } catch (e) { 
-                msg.innerText = e.message; 
+        // VBA Translation Logic
+        function translateMethod(method) {
+            let m = method.toString().toUpperCase().trim();
+            if (m.startsWith('K')) return parseInt(m.replace('K', ''));
+            if (m.startsWith('C')) return parseInt(m.replace('C', '-'));
+            if (m.startsWith('T')) { let n = m.replace('T', ''); return parseInt(n + n); }
+            if (m.includes('>')) { let p = m.split('>'); return parseInt("9" + p[0] + p[1]); }
+            return parseInt(m);
+        }
+
+        // Payout Logic (Ordered pairs 912, 921, etc.)
+        function calculatePayout(result, methodStr, luy) {
+            let res = parseInt(result);
+            let m = translateMethod(methodStr);
+            let l = parseFloat(luy);
+            let am = Math.abs(m);
+            if (m >= 900) { 
+                let d1 = Math.floor((m - 900) / 10), d2 = (m - 900) % 10;
+                return (res === d1) ? l * 2 * 0.95 : (res === d2 ? 0 : -l);
             }
+            // Basic K/C logic
+            const rules = [[1,1,3*0.95,-1],[2,2,3*0.95,-1],[3,3,3*0.95,-1],[4,4,3*0.95,-1],[-1,1,-3,0.95],[-2,2,-3,0.95],[-3,3,-3,0.95],[-4,4,-3,0.95]];
+            for (let r of rules) { if (m === r[0]) return (res === r[1]) ? l * r[2] : l * r[3]; }
+            return 0;
+        }
+
+        async function settleGame(winNum) {
+            const snap = await db.collection("bets").where("status", "==", "pending").get();
+            snap.forEach(async d => {
+                const b = d.data();
+                const profit = calculatePayout(winNum, b.m, b.l);
+                const userRef = db.collection("users").doc(b.uid);
+                const uSnap = await userRef.get();
+                if (profit >= 0) {
+                    await userRef.update({ wallet: uSnap.data().wallet + (b.l + profit) });
+                    await d.ref.update({ status: "won" });
+                } else {
+                    await d.ref.update({ status: "lost" });
+                }
+            });
+            alert("Settlement Done for Result " + winNum);
         }
     </script>
 </body>
