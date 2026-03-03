@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LogicPro | Secure Login</title>
+    <title>LogicPro | Login</title>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -10,7 +10,8 @@
         body { background: #0f172a; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .card { background: #1e293b; padding: 30px; border-radius: 20px; width: 320px; text-align: center; border: 1px solid #334155; }
         input { width: 100%; padding: 12px; margin: 10px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 14px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 10px; cursor: pointer; }
+        button { width: 100%; padding: 14px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 10px; cursor: pointer; transition: 0.3s; }
+        button:hover { background: #2563eb; }
         .toggle { font-size: 0.8rem; color: #94a3b8; margin-top: 15px; cursor: pointer; }
     </style>
 </head>
@@ -46,8 +47,8 @@
             try {
                 if (!isLogin) {
                     const res = await auth.createUserWithEmailAndPassword(email, pass);
-                    await db.collection("users").doc(res.user.uid).set({ email, isApproved: false, wallet: 1000, role: 'player' });
-                    msg.innerText = "Success! Now wait for Admin approval.";
+                    await db.collection("users").doc(res.user.uid).set({ email, isApproved: false, wallet: 1000, role: 'player', totalLoss: 0 });
+                    msg.innerText = "Registered! Wait for admin approval.";
                 } else {
                     const res = await auth.signInWithEmailAndPassword(email, pass);
                     const doc = await db.collection("users").doc(res.user.uid).get();
@@ -56,7 +57,7 @@
                     else if (data.isApproved) window.location.href = "app.html";
                     else msg.innerText = "Account pending approval.";
                 }
-            } catch (e) { msg.innerText = "Error: " + e.message; }
+            } catch (e) { msg.innerText = e.message; }
         }
     </script>
 </body>
