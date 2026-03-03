@@ -1,64 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LogicPro | Play</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogicPro | Play Arena</title>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
-        body { background: #0f172a; color: white; font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; }
+        body { background: #0f172a; color: white; font-family: 'Segoe UI', sans-serif; padding: 15px; max-width: 500px; margin: auto; }
         .card { background: #1e293b; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; text-align: center; }
-        .balance { font-size: 2.5rem; color: #fbbf24; font-weight: bold; }
-        .timer { font-size: 2rem; color: #ef4444; font-family: monospace; font-weight: bold; }
-        input { width: 100%; padding: 12px; margin: 10px 0; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 8px; box-sizing: border-box; }
-        button { width: 100%; padding: 15px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; }
+        .status-card { border-left: 5px solid #3b82f6; }
+        .balance { font-size: 2.2rem; color: #fbbf24; font-weight: bold; margin: 5px 0; }
+        .timer { font-size: 2.5rem; color: #ef4444; font-family: monospace; font-weight: bold; }
+        input { width: 100%; padding: 14px; margin: 10px 0; background: #0f172a; color: white; border: 1px solid #475569; border-radius: 10px; box-sizing: border-box; font-size: 1rem; }
+        button { width: 100%; padding: 16px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 10px; cursor: pointer; font-size: 1.1rem; }
+        button:active { transform: scale(0.98); background: #2563eb; }
+        table { width: 100%; margin-top: 15px; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; color: #94a3b8; padding: 10px; border-bottom: 2px solid #334155; }
+        td { padding: 12px 10px; border-bottom: 1px solid #1e293b; }
+        .win { color: #10b981; font-weight: bold; }
+        .loss { color: #ef4444; font-weight: bold; }
+        .pending { color: #fbbf24; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="card" style="border-color: #3b82f6;">
-        <h2 id="roundNum">Round: #--</h2>
+
+    <div class="card status-card">
+        <h2 id="roundNum" style="margin-top: 0;">Round: #--</h2>
         <div id="timerDisplay" class="timer">07:00</div>
+        <p id="statusMsg" style="font-size: 0.8rem; color: #94a3b8;">Bidding is currently open</p>
     </div>
 
     <div class="card">
-        <p>WALLET BALANCE</p>
+        <p style="margin: 0; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Available Balance</p>
         <div id="bal" class="balance">0.00</div>
     </div>
 
     <div class="card">
-        <input type="text" id="mCode" placeholder="Method Code (e.g., K1)">
-        <input type="number" id="mLuy" placeholder="Unlimited Bet Amount">
+        <input type="text" id="mCode" placeholder="Enter Code (e.g. K1, T2)">
+        <input type="number" id="mLuy" placeholder="Enter Bet Amount">
         <button onclick="placeBet()">PLACE BET</button>
+        <p style="font-size: 0.7rem; color: #64748b; margin-top: 10px;">You can place multiple bets per round.</p>
+    </div>
+
+    <div class="card">
+        <h3 style="text-align: left; margin-top: 0;">My History</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Round</th>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="myHistory">
+                </tbody>
+        </table>
     </div>
 
     <script>
+        // --- CONFIGURATION ---
         const firebaseConfig = { apiKey: "AIzaSyC00tFeeA-JTOq-D4pu7_emPAzU7s-yPsg", authDomain: "logicpro-5b78a.firebaseapp.com", projectId: "logicpro-5b78a", storageBucket: "logicpro-5b78a.firebasestorage.app", messagingSenderId: "126796584893", appId: "1:126796584893:web:ac43e619bf73a76542e4d4" };
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
         let currentRoundID = 0;
+        let timerRunning = false;
 
+        // --- AUTH & BALANCE SYNC ---
         auth.onAuthStateChanged(user => {
-            if (!user) window.location.href = "index.html";
-            db.collection("users").doc(user.uid).onSnapshot(doc => {
-                document.getElementById('bal').innerText = doc.data().wallet.toLocaleString();
-            });
+            if (!user) {
+                window.location.href = "index.html";
+            } else {
+                // Live Balance Update
+                db.collection("users").doc(user.uid).onSnapshot(doc => {
+                    if(doc.exists) document.getElementById('bal').innerText = doc.data().wallet.toLocaleString();
+                });
+                // Load Personal History
+                loadHistory(user.uid);
+            }
         });
 
-        // Sync Timer and Round
+        // --- TIMER & ROUND SYNC ---
         db.collection("system").doc("gameStatus").onSnapshot(doc => {
             const data = doc.data();
             currentRoundID = data.currentRound;
             document.getElementById('roundNum').innerText = "Round: #" + currentRoundID;
-            updateTimer(data.startTime, data.duration);
+            startCountdown(data.startTime, data.duration);
         });
 
-        function updateTimer(startTime, duration) {
-            if (!startTime) return;
+        function startCountdown(startTime, duration) {
+            if (!startTime || timerRunning) return;
+            timerRunning = true;
+            
             const timerLabel = document.getElementById('timerDisplay');
-            const interval = setInterval(() => {
+            const statusMsg = document.getElementById('statusMsg');
+
+            const x = setInterval(() => {
                 const now = Date.now();
                 const start = startTime.toDate().getTime();
                 const elapsed = Math.floor((now - start) / 1000);
@@ -66,33 +107,79 @@
 
                 if (remaining <= 0) {
                     timerLabel.innerText = "WAITING...";
-                    clearInterval(interval);
+                    timerLabel.style.color = "#fbbf24";
+                    statusMsg.innerText = "Bidding closed. Waiting for result.";
+                    clearInterval(x);
+                    timerRunning = false;
                 } else {
                     const mins = Math.floor(remaining / 60);
                     const secs = remaining % 60;
                     timerLabel.innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+                    timerLabel.style.color = "#ef4444";
+                    statusMsg.innerText = "Bidding is currently open";
                 }
             }, 1000);
         }
 
+        // --- MULTI-BET LOGIC ---
         async function placeBet() {
             const m = document.getElementById('mCode').value.toUpperCase();
             const l = parseFloat(document.getElementById('mLuy').value);
-            const user = auth.currentUser;
+            const timerText = document.getElementById('timerDisplay').innerText;
             
-            if (isNaN(l) || l <= 0) return alert("Enter valid amount");
+            // Validation
+            if (!m) return alert("Please enter a Method Code.");
+            if (isNaN(l) || l <= 0) return alert("Please enter a valid amount.");
+            if (timerText === "WAITING...") return alert("Round Closed! Wait for next round.");
 
+            const user = auth.currentUser;
             const userRef = db.collection("users").doc(user.uid);
-            const snap = await userRef.get();
-            const userData = snap.data();
+            const userSnap = await userRef.get();
+            const currentBal = userSnap.data().wallet;
 
-            if (l > userData.wallet) return alert("Insufficient funds!");
+            if (l > currentBal) return alert("Insufficient balance!");
 
-            await userRef.update({ wallet: userData.wallet - l });
-            await db.collection("bets").add({ 
-                uid: user.uid, email: userData.email, m, l, round: currentRoundID, status: "pending", time: Date.now() 
+            // Deduct & Save
+            await userRef.update({ wallet: currentBal - l });
+            await db.collection("bets").add({
+                uid: user.uid,
+                email: userSnap.data().email,
+                m: m,
+                l: l,
+                round: currentRoundID,
+                status: "pending",
+                time: Date.now()
             });
-            alert("Bet Placed!");
+
+            // Reset inputs for next bet
+            document.getElementById('mCode').value = "";
+            document.getElementById('mLuy').value = "";
+            alert(`Bet successfully placed on ${m}!`);
+        }
+
+        // --- HISTORY LOGIC ---
+        function loadHistory(uid) {
+            db.collection("bets")
+                .where("uid", "==", uid)
+                .orderBy("time", "desc")
+                .limit(10)
+                .onSnapshot(snap => {
+                    const historyBody = document.getElementById('myHistory');
+                    historyBody.innerHTML = "";
+                    snap.forEach(doc => {
+                        const b = doc.data();
+                        const s = b.status.toLowerCase();
+                        const statusClass = s === 'won' ? 'win' : (s === 'lost' ? 'loss' : 'pending');
+                        
+                        historyBody.innerHTML += `
+                            <tr>
+                                <td>#${b.round}</td>
+                                <td><b>${b.m}</b></td>
+                                <td>${b.l.toLocaleString()}</td>
+                                <td class="${statusClass}">${b.status.toUpperCase()}</td>
+                            </tr>`;
+                    });
+                });
         }
     </script>
 </body>
