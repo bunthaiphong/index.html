@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LogicPro | Admin Dashboard</title>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <style>
+        body { background: #020617; color: white; font-family: sans-serif; padding: 20px; }
+        .panel { background: #1e293b; padding: 15px; border-radius: 12px; border: 1px solid #ef4444; margin-bottom: 20px; }
+        .row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #334155; }
+        button { background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>ADMIN CONTROL PANEL</h1>
+
+    <div class="panel">
+        <h3>User Approval Queue</h3>
+        <div id="userList">Loading...</div>
+    </div>
+
+    <script>
+        const firebaseConfig = { apiKey: "AIzaSyC00tFeeA-JTOq-D4pu7_emPAzU7s-yPsg", authDomain: "logicpro-5b78a.firebaseapp.com", projectId: "logicpro-5b78a", storageBucket: "logicpro-5b78a.firebasestorage.app", messagingSenderId: "126796584893", appId: "1:126796584893:web:ac43e619bf73a76542e4d4" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        db.collection("users").where("role", "==", "player").onSnapshot(snap => {
+            const list = document.getElementById('userList');
+            list.innerHTML = "";
+            snap.forEach(doc => {
+                const u = doc.data();
+                const status = u.isApproved ? "Approved ✅" : `<button onclick="approve('${doc.id}')">Approve Now</button>`;
+                list.innerHTML += `<div class="row"><span>${u.email}</span><span>${status}</span></div>`;
+            });
+        });
+
+        function approve(id) {
+            db.collection("users").doc(id).update({ isApproved: true });
+        }
+    </script>
+</body>
+</html>
