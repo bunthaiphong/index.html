@@ -1,54 +1,50 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>LogicPro | Admin Dashboard</title>
+    <meta charset="UTF-8">
+    <title>LogicPro | Admin</title>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { background: #020617; color: white; font-family: sans-serif; padding: 20px; }
-        .panel { background: #1e293b; padding: 15px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px; }
-        .row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #334155; align-items: center; }
-        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
-        .btn-res { padding: 15px; background: #334155; border: 2px solid #475569; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; }
-        .btn-res:hover { border-color: #3b82f6; }
-        .status-pending { color: #fbbf24; font-weight: bold; }
-        .status-won { color: #10b981; }
-        .status-lost { color: #ef4444; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #334155; font-size: 0.9rem; }
+        .panel { background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px; }
+        .row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #334155; }
+        .btn-green { background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; }
+        .btn-blue { background: #3b82f6; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; }
+        table { width: 100%; margin-top: 15px; border-collapse: collapse; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #334155; }
+        .status-won { color: #10b981; } .status-lost { color: #ef4444; }
     </style>
 </head>
 <body>
-    <h1>ADMIN CONTROL PANEL</h1>
+    <h1>ADMIN DASHBOARD</h1>
 
     <div class="panel">
-        <h3>User Approval Queue</h3>
-        <div id="userList">Loading users...</div>
+        <h2 id="admRound">Round: #--</h2>
+        <button class="btn-blue" onclick="startNewRound()">Start New 7-Min Round</button>
     </div>
 
     <div class="panel">
-        <h3>Set Official Result (Settle Bets)</h3>
-        <p style="font-size: 0.8rem; color: #94a3b8;">Clicking a number will mark matching bets as 'Won' and others as 'Lost'.</p>
-        <div class="grid">
-            <button class="btn-res" onclick="settleGame('1')">RESULT 1</button>
-            <button class="btn-res" onclick="settleGame('2')">RESULT 2</button>
-            <button class="btn-res" onclick="settleGame('3')">RESULT 3</button>
-            <button class="btn-res" onclick="settleGame('4')">RESULT 4</button>
+        <h3>Settle Round Result</h3>
+        <button class="btn-green" onclick="settleGame('1')">Result 1</button>
+        <button class="btn-green" onclick="settleGame('2')">Result 2</button>
+        <button class="btn-green" onclick="settleGame('3')">Result 3</button>
+    </div>
+
+    <div class="panel">
+        <h3>User Approvals</h3>
+        <div id="userList"></div>
+    </div>
+
+    <div class="panel">
+        <div style="display:flex; justify-content: space-between;">
+            <h3>Bet History</h3>
+            <button class="btn-green" onclick="exportToExcel()">📥 Export Excel</button>
         </div>
-    </div>
-
-    <div class="panel">
-        <h3>Live Betting History</h3>
         <table>
-            <thead>
-                <tr>
-                    <th>Player (UID)</th>
-                    <th>Code</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="betHistory"></tbody>
+            <thead><tr><th>Round</th><th>Email</th><th>Code</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody id="betList"></tbody>
         </table>
     </div>
 
@@ -57,60 +53,65 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // 1. WATCH USERS FOR APPROVAL
-        db.collection("users").where("role", "==", "player").onSnapshot(snap => {
-            const list = document.getElementById('userList');
-            list.innerHTML = "";
-            snap.forEach(doc => {
-                const u = doc.data();
-                const action = u.isApproved ? "✅ Approved" : `<button onclick="approve('${doc.id}')" style="background:#10b981; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Approve</button>`;
-                list.innerHTML += `<div class="row"><span>${u.email}</span><span>${action}</span></div>`;
-            });
+        // Sync Admin Round
+        db.collection("system").doc("gameStatus").onSnapshot(doc => {
+            document.getElementById('admRound').innerText = "Round: #" + doc.data().currentRound;
         });
 
-        // 2. WATCH BET HISTORY
-        db.collection("bets").orderBy("time", "desc").limit(20).onSnapshot(snap => {
-            const history = document.getElementById('betHistory');
-            history.innerHTML = "";
-            snap.forEach(doc => {
-                const b = doc.data();
-                const statusClass = `status-${b.status}`;
-                history.innerHTML += `<tr>
-                    <td>${b.uid.substring(0,5)}...</td>
-                    <td><b>${b.m}</b></td>
-                    <td>${b.l}</td>
-                    <td class="${statusClass}">${b.status.toUpperCase()}</td>
-                </tr>`;
+        async function startNewRound() {
+            const ref = db.collection("system").doc("gameStatus");
+            const snap = await ref.get();
+            await ref.update({
+                currentRound: (snap.data().currentRound || 0) + 1,
+                startTime: firebase.firestore.FieldValue.serverTimestamp(),
+                duration: 420
             });
-        });
+        }
 
-        // 3. APPROVE FUNCTION
-        function approve(id) { db.collection("users").doc(id).update({ isApproved: true }); }
+        async function settleGame(winNum) {
+            const bets = await db.collection("bets").where("status", "==", "pending").get();
+            bets.forEach(async d => {
+                const b = d.data();
+                const isWin = b.m.includes(winNum);
+                const userRef = db.collection("users").doc(b.uid);
+                const uSnap = await userRef.get();
+                const uData = uSnap.data();
 
-        // 4. SETTLE GAME LOGIC
-        async function settleGame(winningNum) {
-            if(!confirm("Are you sure the result is " + winningNum + "? This will update all pending bets!")) return;
-            
-            const pendingBets = await db.collection("bets").where("status", "==", "pending").get();
-            
-            pendingBets.forEach(async (betDoc) => {
-                const bet = betDoc.data();
-                const isWinner = bet.m.includes(winningNum); // Simple logic: if '1' is in 'K1', it wins.
-                
-                if (isWinner) {
-                    // Update bet to Won
-                    await db.collection("bets").doc(betDoc.id).update({ status: "won" });
-                    // Pay the player (e.g., 2x the bet)
-                    const userRef = db.collection("users").doc(bet.uid);
-                    const userSnap = await userRef.get();
-                    const newBal = userSnap.data().wallet + (bet.l * 2);
-                    await userRef.update({ wallet: newBal });
+                if (isWin) {
+                    await d.ref.update({ status: "won" });
+                    await userRef.update({ wallet: uData.wallet + (b.l * 2) });
                 } else {
-                    // Update bet to Lost
-                    await db.collection("bets").doc(betDoc.id).update({ status: "lost" });
+                    await d.ref.update({ status: "lost" });
+                    await userRef.update({ totalLoss: (uData.totalLoss || 0) + b.l });
                 }
             });
-            alert("Game Settled! Result: " + winningNum);
+            alert("Settled!");
+        }
+
+        db.collection("users").where("role","==","player").onSnapshot(snap => {
+            const l = document.getElementById('userList'); l.innerHTML = "";
+            snap.forEach(d => {
+                const u = d.data();
+                l.innerHTML += `<div class="row"><span>${u.email} (Loss: ${u.totalLoss})</span>
+                ${u.isApproved ? '✅' : `<button onclick="db.collection('users').doc('${d.id}').update({isApproved:true})">Approve</button>`}</div>`;
+            });
+        });
+
+        db.collection("bets").orderBy("time","desc").limit(20).onSnapshot(snap => {
+            const bList = document.getElementById('betList'); bList.innerHTML = "";
+            snap.forEach(d => {
+                const b = d.data();
+                bList.innerHTML += `<tr><td>${b.round}</td><td>${b.email}</td><td>${b.m}</td><td>${b.l}</td><td class="status-${b.status}">${b.status}</td></tr>`;
+            });
+        });
+
+        async function exportToExcel() {
+            const snap = await db.collection("bets").get();
+            const data = snap.docs.map(d => d.data());
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "History");
+            XLSX.writeFile(wb, "LogicPro_History.xlsx");
         }
     </script>
 </body>
