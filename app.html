@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LogicPro | Play</title>
@@ -7,22 +7,28 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
-        body { background: #0f172a; color: white; font-family: sans-serif; padding: 20px; text-align: center; }
-        .card { background: #1e293b; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; }
+        body { background: #0f172a; color: white; font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; }
+        .card { background: #1e293b; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; text-align: center; }
         .balance { font-size: 2.5rem; color: #fbbf24; font-weight: bold; }
+        .timer { font-size: 2rem; color: #ef4444; font-family: monospace; font-weight: bold; }
         input { width: 100%; padding: 12px; margin: 10px 0; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 8px; box-sizing: border-box; }
         button { width: 100%; padding: 15px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <p>CURRENT WALLET</p>
-        <div id="bal" class="balance">Loading...</div>
+    <div class="card" style="border-color: #3b82f6;">
+        <h2 id="roundNum">Round: #--</h2>
+        <div id="timerDisplay" class="timer">07:00</div>
     </div>
 
     <div class="card">
-        <input type="text" id="mCode" placeholder="Method Code (e.g. K1)">
-        <input type="number" id="mLuy" placeholder="Bet Amount">
+        <p>WALLET BALANCE</p>
+        <div id="bal" class="balance">0.00</div>
+    </div>
+
+    <div class="card">
+        <input type="text" id="mCode" placeholder="Method Code (e.g., K1)">
+        <input type="number" id="mLuy" placeholder="Unlimited Bet Amount">
         <button onclick="placeBet()">PLACE BET</button>
     </div>
 
@@ -32,26 +38,60 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
+        let currentRoundID = 0;
+
         auth.onAuthStateChanged(user => {
             if (!user) window.location.href = "index.html";
             db.collection("users").doc(user.uid).onSnapshot(doc => {
-                document.getElementById('bal').innerText = doc.data().wallet;
+                document.getElementById('bal').innerText = doc.data().wallet.toLocaleString();
             });
         });
+
+        // Sync Timer and Round
+        db.collection("system").doc("gameStatus").onSnapshot(doc => {
+            const data = doc.data();
+            currentRoundID = data.currentRound;
+            document.getElementById('roundNum').innerText = "Round: #" + currentRoundID;
+            updateTimer(data.startTime, data.duration);
+        });
+
+        function updateTimer(startTime, duration) {
+            if (!startTime) return;
+            const timerLabel = document.getElementById('timerDisplay');
+            const interval = setInterval(() => {
+                const now = Date.now();
+                const start = startTime.toDate().getTime();
+                const elapsed = Math.floor((now - start) / 1000);
+                const remaining = duration - elapsed;
+
+                if (remaining <= 0) {
+                    timerLabel.innerText = "WAITING...";
+                    clearInterval(interval);
+                } else {
+                    const mins = Math.floor(remaining / 60);
+                    const secs = remaining % 60;
+                    timerLabel.innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+                }
+            }, 1000);
+        }
 
         async function placeBet() {
             const m = document.getElementById('mCode').value.toUpperCase();
             const l = parseFloat(document.getElementById('mLuy').value);
             const user = auth.currentUser;
             
+            if (isNaN(l) || l <= 0) return alert("Enter valid amount");
+
             const userRef = db.collection("users").doc(user.uid);
             const snap = await userRef.get();
-            const bal = snap.data().wallet;
+            const userData = snap.data();
 
-            if (l > bal) return alert("Not enough money!");
+            if (l > userData.wallet) return alert("Insufficient funds!");
 
-            await userRef.update({ wallet: bal - l });
-            await db.collection("bets").add({ uid: user.uid, m, l, status: "pending", time: Date.now() });
+            await userRef.update({ wallet: userData.wallet - l });
+            await db.collection("bets").add({ 
+                uid: user.uid, email: userData.email, m, l, round: currentRoundID, status: "pending", time: Date.now() 
+            });
             alert("Bet Placed!");
         }
     </script>
