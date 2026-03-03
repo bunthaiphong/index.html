@@ -2,62 +2,94 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LogicPro | Login</title>
+    <title>LogicPro | Register</title>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         body { background: #0f172a; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 30px; border-radius: 20px; width: 320px; text-align: center; border: 1px solid #334155; }
-        input { width: 100%; padding: 12px; margin: 10px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 14px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 10px; cursor: pointer; transition: 0.3s; }
+        .card { background: #1e293b; padding: 30px; border-radius: 20px; width: 340px; text-align: center; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        input { width: 100%; padding: 12px; margin: 8px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 10px; box-sizing: border-box; }
+        button { width: 100%; padding: 14px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 10px; cursor: pointer; transition: 0.3s; margin-top: 10px; }
         button:hover { background: #2563eb; }
-        .toggle { font-size: 0.8rem; color: #94a3b8; margin-top: 15px; cursor: pointer; }
+        .toggle { font-size: 0.8rem; color: #94a3b8; margin-top: 15px; cursor: pointer; text-decoration: underline; }
+        #nickField { display: none; } /* Hidden by default for Login mode */
     </style>
 </head>
 <body>
     <div class="card">
         <h2 id="title">Login</h2>
+        <div id="nickField">
+            <input type="text" id="nickname" placeholder="Your Nickname (Display Name)">
+        </div>
         <input type="email" id="email" placeholder="Email Address">
         <input type="password" id="pass" placeholder="Password">
+        
         <button onclick="handleAuth()">Submit</button>
         <p class="toggle" onclick="toggleMode()" id="toggleTxt">Need an account? Register</p>
         <p id="msg" style="color:#fbbf24; font-size:0.8rem; margin-top:10px;"></p>
     </div>
 
     <script>
-        const firebaseConfig = { apiKey: "AIzaSyC00tFeeA-JTOq-D4pu7_emPAzU7s-yPsg", authDomain: "logicpro-5b78a.firebaseapp.com", projectId: "logicpro-5b78a", storageBucket: "logicpro-5b78a.firebasestorage.app", messagingSenderId: "126796584893", appId: "1:126796584893:web:ac43e619bf73a76542e4d4" };
+        // Use your real config here
+        const firebaseConfig = { apiKey: "AIzaSy...", authDomain: "...", projectId: "...", storageBucket: "...", messagingSenderId: "...", appId: "..." };
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
+        
         let isLogin = true;
 
         function toggleMode() {
             isLogin = !isLogin;
             document.getElementById('title').innerText = isLogin ? "Login" : "Register";
-            document.getElementById('toggleTxt').innerText = isLogin ? "Need an account? Register" : "Have an account? Login";
+            document.getElementById('toggleTxt').innerText = isLogin ? "Have an account? Login" : "Need an account? Register";
+            // Show or hide nickname field based on mode
+            document.getElementById('nickField').style.display = isLogin ? "none" : "block";
         }
 
         async function handleAuth() {
             const email = document.getElementById('email').value;
             const pass = document.getElementById('pass').value;
+            const nickname = document.getElementById('nickname').value.trim();
             const msg = document.getElementById('msg');
             msg.innerText = "Processing...";
             
             try {
                 if (!isLogin) {
+                    // Registration Logic
+                    if (!nickname) { msg.innerText = "Please enter a nickname!"; return; }
+                    
                     const res = await auth.createUserWithEmailAndPassword(email, pass);
-                    await db.collection("users").doc(res.user.uid).set({ email, isApproved: false, wallet: 1000, role: 'player', totalLoss: 0 });
-                    msg.innerText = "Registered! Wait for admin approval.";
+                    
+                    // Save user data including Nickname to Firestore
+                    await db.collection("users").doc(res.user.uid).set({ 
+                        uid: res.user.uid,
+                        email: email, 
+                        nickname: nickname, // <--- Saved here
+                        isApproved: false, 
+                        wallet: 0, 
+                        role: 'player', 
+                        totalLoss: 0,
+                        createdAt: Date.now()
+                    });
+                    msg.innerText = "Registration successful! Wait for admin approval.";
                 } else {
+                    // Login Logic
                     const res = await auth.signInWithEmailAndPassword(email, pass);
                     const doc = await db.collection("users").doc(res.user.uid).get();
                     const data = doc.data();
-                    if (data.role === 'admin') window.location.href = "admin.html";
-                    else if (data.isApproved) window.location.href = "app.html";
-                    else msg.innerText = "Account pending approval.";
+                    
+                    if (data.role === 'admin') {
+                        window.location.href = "admin.html";
+                    } else if (data.isApproved) {
+                        window.location.href = "app.html";
+                    } else {
+                        msg.innerText = "Account pending approval from Admin.";
+                    }
                 }
-            } catch (e) { msg.innerText = e.message; }
+            } catch (e) { 
+                msg.innerText = "Error: " + e.message; 
+            }
         }
     </script>
 </body>
